@@ -6,32 +6,49 @@
 
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-body {
-  background:#0f172a;
-  color:white;
-  font-family:Arial;
-  text-align:center;
-}
-
-.temp {
-  font-size:60px;
-  color:#38bdf8;
-}
-
+body { background:#0f172a; color:white; font-family:Arial; text-align:center; }
+.card { background:#1e293b; padding:20px; margin:15px auto; border-radius:15px; width:90%; max-width:1000px; }
+.temp { font-size:60px; color:#38bdf8; }
+.estado { font-weight:bold; }
 .online { color:#22c55e; }
 .offline { color:red; }
+.alerta { color:red; font-weight:bold; }
+button { margin:5px; padding:10px; border:none; border-radius:8px; background:#38bdf8; cursor:pointer; }
 </style>
 </head>
 
 <body>
 
-<h1>NUMEC</h1>
-<h2>Torre A - Estanque 1</h2>
+<div class="card">
+  <h1>NUMEC</h1>
+  <h2>Torre A - Estanque 1</h2>
 
-<div class="temp" id="temp">--</div>
-<div id="estado" class="offline">DESCONECTADO</div>
+  <div class="temp" id="temp">--</div>
+  <p id="hora">...</p>
+
+  <div id="estado" class="estado offline">DESCONECTADO</div>
+  <div id="tendencia"></div>
+
+  <div id="alertaTemp" class="alerta"></div>
+  <div id="alertaEnergia" class="alerta"></div>
+
+  <div id="tempAmbiente">Ambiente: -- °C</div>
+</div>
+
+<div class="card">
+  <h3>Gráficos</h3>
+
+  <button onclick="modoTiempoReal()">Tiempo real</button>
+  <button onclick="cargarHoras(3)">3 horas</button>
+  <button onclick="cargarHoras(6)">6 horas</button>
+  <button onclick="cargarHoras(12)">12 horas</button>
+  <button onclick="cargarDia()">Diario</button>
+
+  <canvas id="grafico"></canvas>
+</div>
 
 <script>
 
@@ -43,37 +60,170 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-let ultimoTimestamp = 0;
+const basePath = "numec/santa_maria/temperatura";
 
-// 🔥 LECTURA
-db.ref("numec/santa_maria/temperatura/actual").on("value", snap => {
+let grafico;
+let realtimeInterval;
+let realtimeLabels = [];
+let realtimeData = [];
+
+let ultimoTimestamp = 0;
+let ultimaTemp = null;
+
+// 🔥 LECTURA REAL
+db.ref(basePath + "/actual").on("value", snap => {
 
   const d = snap.val();
 
   if(d){
 
+    const valor = d.valor;
+
     document.getElementById("temp").innerText =
-      d.valor.toFixed(1) + " °C";
+      Number(valor).toFixed(1) + " °C";
+
+    document.getElementById("hora").innerText =
+      new Date().toLocaleString();
 
     ultimoTimestamp = d.timestamp * 1000;
 
     document.getElementById("estado").innerText = "ONLINE";
-    document.getElementById("estado").className = "online";
+    document.getElementById("estado").className = "estado online";
+
+    if(ultimaTemp !== null){
+      if(valor > ultimaTemp) document.getElementById("tendencia").innerText = "↑ Subiendo";
+      else if(valor < ultimaTemp) document.getElementById("tendencia").innerText = "↓ Bajando";
+      else document.getElementById("tendencia").innerText = "→ Estable";
+    }
+
+    ultimaTemp = valor;
+
+    if(valor < 35){
+      document.getElementById("alertaTemp").innerText = "⚠️ BAJA TEMPERATURA";
+    } else {
+      document.getElementById("alertaTemp").innerText = "";
+    }
   }
 });
 
-// 🔥 DETECCIÓN REAL
+// 🔥 DETECCIÓN REAL DESCONECTADO
 setInterval(() => {
 
   if(!ultimoTimestamp || (Date.now() - ultimoTimestamp > 60000)){
 
     document.getElementById("estado").innerText = "DESCONECTADO";
-    document.getElementById("estado").className = "offline";
+    document.getElementById("estado").className = "estado offline";
+
+    document.getElementById("alertaEnergia").innerText =
+      "⚡ SIN COMUNICACIÓN";
 
     document.getElementById("temp").innerText = "DESCONECTADO";
+    document.getElementById("tendencia").innerText = "";
   }
 
 }, 5000);
+
+// 🌤️ CLIMA
+function cargarClima(){
+  fetch("https://api.open-meteo.com/v1/forecast?latitude=-33.45&longitude=-70.66&current_weather=true")
+  .then(r=>r.json())
+  .then(d=>{
+    document.getElementById("tempAmbiente").innerText =
+      "Ambiente: " + d.current_weather.temperature + " °C";
+  });
+}
+
+cargarClima();
+setInterval(cargarClima,600000);
+
+// 📊 GRAFICO
+function graficar(labels,data,titulo){
+  const ctx = document.getElementById("grafico");
+  if(grafico) grafico.destroy();
+
+  grafico = new Chart(ctx,{
+    type:'line',
+    data:{ labels:labels, datasets:[{ label:titulo, data:data }] }
+  });
+}
+
+// 🔥 TIEMPO REAL
+function modoTiempoReal(){
+
+  clearInterval(realtimeInterval);
+
+  realtimeLabels=[];
+  realtimeData=[];
+
+  realtimeInterval=setInterval(()=>{
+
+    db.ref(basePath+"/actual").once("value", snap=>{
+      const d = snap.val();
+      if(!d) return;
+
+      realtimeLabels.push(new Date().toLocaleTimeString());
+      realtimeData.push(d.valor);
+
+      if(realtimeLabels.length > 50){
+        realtimeLabels.shift();
+        realtimeData.shift();
+      }
+
+      graficar(realtimeLabels,realtimeData,"Tiempo real");
+    });
+
+  },5000);
+}
+
+// 🔥 HORAS
+async function cargarHoras(h){
+
+  clearInterval(realtimeInterval);
+
+  const snap = await db.ref(basePath+"/registros_minuto").once("value");
+  const data = snap.val();
+
+  if(!data) return;
+
+  const ahora = Math.floor(Date.now()/1000);
+  const limite = ahora - h*3600;
+
+  let labels=[], vals=[];
+
+  Object.keys(data).forEach(k=>{
+    if(Number(k) >= limite){
+      labels.push(new Date(k*1000).toLocaleTimeString());
+      vals.push(data[k]);
+    }
+  });
+
+  graficar(labels,vals,"Últimas "+h+" horas");
+}
+
+// 🔥 DIARIO
+async function cargarDia(){
+
+  clearInterval(realtimeInterval);
+
+  const snap = await db.ref(basePath+"/registros_minuto").once("value");
+  const data = snap.val();
+
+  const ahora = Math.floor(Date.now()/1000);
+  const limite = ahora - 86400;
+
+  let labels=[], vals=[];
+
+  Object.keys(data).forEach(k=>{
+    if(Number(k) >= limite){
+      labels.push(new Date(k*1000).toLocaleTimeString());
+      vals.push(data[k]);
+    }
+  });
+
+  graficar(labels,vals,"Últimas 24h");
+}
+
+modoTiempoReal();
 
 </script>
 
