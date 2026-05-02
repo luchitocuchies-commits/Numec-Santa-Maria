@@ -52,6 +52,14 @@ button {
   background:#38bdf8;
   cursor:pointer;
 }
+
+button:hover {
+  background:#0ea5e9;
+}
+
+canvas {
+  margin-top:20px;
+}
 </style>
 </head>
 
@@ -67,7 +75,7 @@ button {
   <div id="estado" class="estado offline">OFFLINE</div>
   <div id="tendencia"></div>
 
-  <div class="ambiente" id="tempAmbiente">Ambiente: -- °C</div>
+  <div class="ambiente" id="tempAmbiente">Ambiente Santiago: -- °C</div>
 
   <div id="alertaTemp" class="alerta"></div>
   <div id="alertaEnergia" class="alerta"></div>
@@ -77,6 +85,8 @@ button {
   <h3>Gráficos</h3>
 
   <button onclick="modoTiempoReal()">Tiempo real</button>
+  <button onclick="cargarHoras(6)">Últimas 6 horas</button>
+  <button onclick="cargarHoras(12)">Últimas 12 horas</button>
   <button onclick="cargarDia()">Diario</button>
   <button onclick="cargarSemana()">Semanal</button>
   <button onclick="cargarMes()">Mensual</button>
@@ -87,8 +97,6 @@ button {
 </div>
 
 <script>
-
-// 🔥 CONFIG
 const firebaseConfig = {
   apiKey: "AIzaSyAcHuJpGOra7VEiwhRCEg7Ka8ECiIb0Tg8",
   databaseURL: "https://mantenimiento-numec-default-rtdb.firebaseio.com"
@@ -108,12 +116,14 @@ let ultimoDataset = [];
 let ultimoUpdate = Date.now();
 let ultimaTemp = null;
 
-// 🔥 DATOS EN VIVO
+// Temperatura actual
 db.ref(basePath + "/actual").on("value", snap => {
   const d = snap.val();
-  if(d){
 
-    document.getElementById("temp").innerText = d.valor.toFixed(1)+" °C";
+  if(d){
+    const valor = d.valor ?? d;
+
+    document.getElementById("temp").innerText = Number(valor).toFixed(1) + " °C";
     document.getElementById("hora").innerText = new Date().toLocaleString();
 
     ultimoUpdate = Date.now();
@@ -121,20 +131,19 @@ db.ref(basePath + "/actual").on("value", snap => {
     document.getElementById("estado").innerText = "ONLINE";
     document.getElementById("estado").className = "estado online";
 
-    // 📈 tendencia
     if(ultimaTemp !== null){
-      if(d.valor > ultimaTemp){
+      if(valor > ultimaTemp){
         document.getElementById("tendencia").innerText = "↑ Subiendo";
-      } else if(d.valor < ultimaTemp){
+      } else if(valor < ultimaTemp){
         document.getElementById("tendencia").innerText = "↓ Bajando";
       } else {
         document.getElementById("tendencia").innerText = "→ Estable";
       }
     }
-    ultimaTemp = d.valor;
 
-    // 🔴 alarma temperatura
-    if(d.valor < 35){
+    ultimaTemp = valor;
+
+    if(valor < 35){
       document.getElementById("alertaTemp").innerText = "⚠️ BAJA TEMPERATURA";
     } else {
       document.getElementById("alertaTemp").innerText = "";
@@ -142,31 +151,36 @@ db.ref(basePath + "/actual").on("value", snap => {
   }
 });
 
-// 🔥 CORTE ENERGÍA
-setInterval(()=>{
+// Corte energía / pérdida comunicación
+setInterval(() => {
   if(Date.now() - ultimoUpdate > 120000){
     document.getElementById("estado").innerText = "OFFLINE";
     document.getElementById("estado").className = "estado offline";
-    document.getElementById("alertaEnergia").innerText = "⚡ POSIBLE CORTE";
+    document.getElementById("alertaEnergia").innerText = "⚡ POSIBLE CORTE O PÉRDIDA DE COMUNICACIÓN";
   } else {
     document.getElementById("alertaEnergia").innerText = "";
   }
-},5000);
+}, 5000);
 
-// 🌤️ CLIMA SANTIAGO
+// Temperatura ambiente Santiago
 function cargarClima(){
   fetch("https://api.open-meteo.com/v1/forecast?latitude=-33.45&longitude=-70.66&current_weather=true")
-  .then(r=>r.json())
-  .then(d=>{
+  .then(r => r.json())
+  .then(d => {
     document.getElementById("tempAmbiente").innerText =
-      "Ambiente: "+d.current_weather.temperature+" °C";
+      "Ambiente Santiago: " + d.current_weather.temperature + " °C";
+  })
+  .catch(() => {
+    document.getElementById("tempAmbiente").innerText =
+      "Ambiente Santiago: sin datos";
   });
 }
-cargarClima();
-setInterval(cargarClima,600000);
 
-// 📊 GRAFICO
-function graficar(labels,data,titulo){
+cargarClima();
+setInterval(cargarClima, 600000);
+
+// Crear gráfico
+function graficar(labels, data, titulo){
 
   const ctx = document.getElementById("grafico");
 
@@ -180,158 +194,294 @@ function graficar(labels,data,titulo){
         label:titulo,
         data:data,
         borderWidth:2,
-        tension:0.2,
+        tension:0.25,
         pointRadius:2
       }]
     },
-    options:{animation:false}
+    options:{
+      animation:false,
+      responsive:true,
+      scales:{
+        y:{
+          title:{display:true,text:"Temperatura °C"}
+        },
+        x:{
+          title:{display:true,text:"Tiempo"}
+        }
+      }
+    }
   });
 
   ultimoDataset = labels.map((l,i)=>({x:l,y:data[i]}));
 }
 
-// 🔥 TIEMPO REAL (5s)
+// Tiempo real cada 5 segundos
 function modoTiempoReal(){
 
   clearInterval(realtimeInterval);
 
-  realtimeLabels=[];
-  realtimeData=[];
+  realtimeLabels = [];
+  realtimeData = [];
 
-  realtimeInterval=setInterval(()=>{
+  realtimeInterval = setInterval(() => {
 
-    db.ref(basePath+"/actual").once("value", snap=>{
-
+    db.ref(basePath + "/actual").once("value", snap => {
       const d = snap.val();
       if(!d) return;
 
-      const hora = new Date().toLocaleTimeString();
+      const valor = d.valor ?? d;
 
-      realtimeLabels.push(hora);
-      realtimeData.push(d.valor);
+      realtimeLabels.push(new Date().toLocaleTimeString());
+      realtimeData.push(Number(valor));
 
       if(realtimeLabels.length > 60){
         realtimeLabels.shift();
         realtimeData.shift();
       }
 
-      graficar(realtimeLabels,realtimeData,"Tiempo real");
+      graficar(realtimeLabels, realtimeData, "Tiempo real cada 5 segundos");
     });
 
-  },5000);
+  }, 5000);
 }
 
-// 🔥 DIARIO
-function cargarDia(){
+// Leer registros históricos, compatible con fechas y epoch
+async function obtenerRegistros(){
+  const snap = await db.ref(basePath + "/registros_minuto").once("value");
+  const data = snap.val();
+
+  let registros = [];
+
+  if(!data) return registros;
+
+  Object.keys(data).forEach(k1 => {
+    const nivel1 = data[k1];
+
+    if(typeof nivel1 === "number"){
+      registros.push({
+        epoch: Number(k1),
+        temp: nivel1
+      });
+    } else if(typeof nivel1 === "object"){
+      Object.keys(nivel1).forEach(k2 => {
+        const valor = nivel1[k2];
+
+        if(typeof valor === "number"){
+          registros.push({
+            epoch: Number(k2),
+            temp: valor
+          });
+        } else if(typeof valor === "object"){
+          registros.push({
+            epoch: Number(valor.epoch ?? k2),
+            temp: Number(valor.temperatura ?? valor.valor)
+          });
+        }
+      });
+    }
+  });
+
+  registros = registros
+    .filter(r => !isNaN(r.epoch) && !isNaN(r.temp))
+    .sort((a,b) => a.epoch - b.epoch);
+
+  return registros;
+}
+
+// Últimas 6 o 12 horas
+async function cargarHoras(horas){
+
   clearInterval(realtimeInterval);
 
-  const hoy = new Date().toISOString().slice(0,10);
+  const registros = await obtenerRegistros();
 
-  db.ref(basePath+"/registros_minuto/"+hoy).once("value",snap=>{
-    const data = snap.val();
-    if(!data) return alert("Sin datos");
+  if(registros.length === 0){
+    alert("Sin datos históricos");
+    return;
+  }
 
-    let labels=[], vals=[];
-    Object.keys(data).forEach(k=>{
-      labels.push(new Date(k*1000).toLocaleTimeString());
-      vals.push(data[k]);
-    });
+  const ahora = Math.floor(Date.now() / 1000);
+  const limite = ahora - horas * 3600;
 
-    graficar(labels,vals,"Hoy");
+  const filtrados = registros.filter(r => r.epoch >= limite);
+
+  if(filtrados.length === 0){
+    alert("Sin datos en las últimas " + horas + " horas");
+    return;
+  }
+
+  let labels = [];
+  let vals = [];
+
+  filtrados.forEach(r => {
+    labels.push(new Date(r.epoch * 1000).toLocaleTimeString());
+    vals.push(r.temp);
   });
+
+  graficar(labels, vals, "Últimas " + horas + " horas");
 }
 
-// 🔥 SEMANAL
-function cargarSemana(){
+// Diario
+async function cargarDia(){
+
   clearInterval(realtimeInterval);
 
-  db.ref(basePath+"/registros_minuto").once("value",snap=>{
-    const data = snap.val();
-    if(!data) return;
+  const registros = await obtenerRegistros();
 
-    let dias = Object.keys(data).slice(-7);
+  const ahora = Math.floor(Date.now() / 1000);
+  const limite = ahora - 24 * 3600;
 
-    let labels=[], vals=[];
-    dias.forEach(d=>{
-      let arr=Object.values(data[d]);
-      let prom=arr.reduce((a,b)=>a+b,0)/arr.length;
-      labels.push(d);
-      vals.push(prom);
-    });
+  const filtrados = registros.filter(r => r.epoch >= limite);
 
-    graficar(labels,vals,"Semanal");
+  if(filtrados.length === 0){
+    alert("Sin datos diarios");
+    return;
+  }
+
+  let labels = [];
+  let vals = [];
+
+  filtrados.forEach(r => {
+    labels.push(new Date(r.epoch * 1000).toLocaleTimeString());
+    vals.push(r.temp);
   });
+
+  graficar(labels, vals, "Últimas 24 horas");
 }
 
-// 🔥 MENSUAL
-function cargarMes(){
+// Semanal
+async function cargarSemana(){
+
   clearInterval(realtimeInterval);
 
-  db.ref(basePath+"/registros_minuto").once("value",snap=>{
-    const data = snap.val();
-    if(!data) return;
+  const registros = await obtenerRegistros();
 
-    let meses={};
+  const ahora = Math.floor(Date.now() / 1000);
+  const limite = ahora - 7 * 24 * 3600;
 
-    Object.keys(data).forEach(d=>{
-      let m=d.slice(0,7);
-      if(!meses[m]) meses[m]=[];
+  const filtrados = registros.filter(r => r.epoch >= limite);
 
-      Object.values(data[d]).forEach(v=>meses[m].push(v));
-    });
+  if(filtrados.length === 0){
+    alert("Sin datos semanales");
+    return;
+  }
 
-    let labels=[], vals=[];
-    Object.keys(meses).forEach(m=>{
-      let arr=meses[m];
-      labels.push(m);
-      vals.push(arr.reduce((a,b)=>a+b,0)/arr.length);
-    });
+  const porDia = {};
 
-    graficar(labels,vals,"Mensual");
+  filtrados.forEach(r => {
+    const dia = new Date(r.epoch * 1000).toISOString().slice(0,10);
+    if(!porDia[dia]) porDia[dia] = [];
+    porDia[dia].push(r.temp);
   });
+
+  let labels = [];
+  let vals = [];
+
+  Object.keys(porDia).sort().forEach(dia => {
+    const arr = porDia[dia];
+    const prom = arr.reduce((a,b)=>a+b,0) / arr.length;
+    labels.push(dia);
+    vals.push(prom);
+  });
+
+  graficar(labels, vals, "Promedio últimos 7 días");
 }
 
-// 🔥 ANUAL
-function cargarAnio(){
+// Mensual
+async function cargarMes(){
+
   clearInterval(realtimeInterval);
 
-  db.ref(basePath+"/registros_minuto").once("value",snap=>{
-    const data = snap.val();
-    if(!data) return;
+  const registros = await obtenerRegistros();
 
-    let anios={};
+  const ahora = Math.floor(Date.now() / 1000);
+  const limite = ahora - 30 * 24 * 3600;
 
-    Object.keys(data).forEach(d=>{
-      let a=d.slice(0,4);
-      if(!anios[a]) anios[a]=[];
+  const filtrados = registros.filter(r => r.epoch >= limite);
 
-      Object.values(data[d]).forEach(v=>anios[a].push(v));
-    });
+  if(filtrados.length === 0){
+    alert("Sin datos mensuales");
+    return;
+  }
 
-    let labels=[], vals=[];
-    Object.keys(anios).forEach(a=>{
-      let arr=anios[a];
-      labels.push(a);
-      vals.push(arr.reduce((x,y)=>x+y,0)/arr.length);
-    });
+  const porDia = {};
 
-    graficar(labels,vals,"Anual");
+  filtrados.forEach(r => {
+    const dia = new Date(r.epoch * 1000).toISOString().slice(0,10);
+    if(!porDia[dia]) porDia[dia] = [];
+    porDia[dia].push(r.temp);
   });
+
+  let labels = [];
+  let vals = [];
+
+  Object.keys(porDia).sort().forEach(dia => {
+    const arr = porDia[dia];
+    const prom = arr.reduce((a,b)=>a+b,0) / arr.length;
+    labels.push(dia);
+    vals.push(prom);
+  });
+
+  graficar(labels, vals, "Promedio últimos 30 días");
 }
 
-// 📄 EXPORTAR CSV
+// Anual
+async function cargarAnio(){
+
+  clearInterval(realtimeInterval);
+
+  const registros = await obtenerRegistros();
+
+  if(registros.length === 0){
+    alert("Sin datos anuales");
+    return;
+  }
+
+  const porMes = {};
+
+  registros.forEach(r => {
+    const mes = new Date(r.epoch * 1000).toISOString().slice(0,7);
+    if(!porMes[mes]) porMes[mes] = [];
+    porMes[mes].push(r.temp);
+  });
+
+  let labels = [];
+  let vals = [];
+
+  Object.keys(porMes).sort().forEach(mes => {
+    const arr = porMes[mes];
+    const prom = arr.reduce((a,b)=>a+b,0) / arr.length;
+    labels.push(mes);
+    vals.push(prom);
+  });
+
+  graficar(labels, vals, "Promedio anual por mes");
+}
+
+// Exportar CSV
 function exportarCSV(){
-  let csv="Tiempo,Temp\n";
-  ultimoDataset.forEach(p=>csv+=`${p.x},${p.y}\n`);
 
-  const blob=new Blob([csv]);
-  const url=URL.createObjectURL(blob);
+  if(ultimoDataset.length === 0){
+    alert("Primero genera un gráfico");
+    return;
+  }
 
-  const a=document.createElement("a");
-  a.href=url;
-  a.download="datos.csv";
+  let csv = "Tiempo,Temperatura\n";
+
+  ultimoDataset.forEach(p => {
+    csv += `${p.x},${p.y}\n`;
+  });
+
+  const blob = new Blob([csv], {type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "datos_temperatura_numec.csv";
   a.click();
 }
+
+modoTiempoReal();
 
 </script>
 
