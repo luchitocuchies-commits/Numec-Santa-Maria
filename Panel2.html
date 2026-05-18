@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>NUMEC Monitor</title>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+  background:#0f172a;
+  color:white;
+  font-family:Arial;
+  text-align:center;
+}
+
+.card {
+  background:#1e293b;
+  padding:20px;
+  margin:15px auto;
+  border-radius:15px;
+  width:90%;
+  max-width:1000px;
+}
+
+.temp {
+  font-size:60px;
+  color:#38bdf8;
+}
+
+.estado { font-weight:bold; }
+.online { color:#22c55e; }
+.offline { color:red; }
+
+.ambiente {
+  font-size:18px;
+  color:#facc15;
+}
+
+.alerta {
+  color:red;
+  font-weight:bold;
+}
+
+button {
+  margin:5px;
+  padding:10px;
+  border:none;
+  border-radius:8px;
+  background:#38bdf8;
+  cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <h1>NUMEC</h1>
+  <h2>Torre A - Estanque 1</h2>
+
+  <div class="temp" id="temp">-- °C</div>
+  <p id="hora">...</p>
+
+  <div id="estado" class="estado offline">OFFLINE</div>
+  <div id="tendencia"></div>
+
+  <div class="ambiente" id="tempAmbiente">Ambiente: -- °C</div>
+
+  <div id="alertaTemp" class="alerta"></div>
+  <div id="alertaEnergia" class="alerta"></div>
+</div>
+
+<div class="card">
+  <h3>Gráficos</h3>
+
+  <button onclick="modoTiempoReal()">Tiempo real</button>
+  <button onclick="cargarDia()">Diario</button>
+  <button onclick="cargarSemana()">Semanal</button>
+  <button onclick="cargarMes()">Mensual</button>
+  <button onclick="cargarAnio()">Anual</button>
+  <button onclick="exportarCSV()">Exportar CSV</button>
+
+  <canvas id="grafico"></canvas>
+</div>
+
+<script>
+
+// 🔥 CONFIG
+const firebaseConfig = {
+  apiKey: "AIzaSyAcHuJpGOra7VEiwhRCEg7Ka8ECiIb0Tg8",
+  databaseURL: "https://mantenimiento-numec-default-rtdb.firebaseio.com"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+const basePath = "numec/santa_maria/temperatura";
+
+let grafico;
+let realtimeInterval;
+let realtimeLabels = [];
+let realtimeData = [];
+let ultimoDataset = [];
+
+let ultimoUpdate = Date.now();
+let ultimaTemp = null;
+
+// 🔥 DATOS EN VIVO
+db.ref(basePath + "/actual").on("value", snap => {
+  const d = snap.val();
+  if(d){
+
+    document.getElementById("temp").innerText = d.valor.toFixed(1)+" °C";
+    document.getElementById("hora").innerText = new Date().toLocaleString();
+
+    ultimoUpdate = Date.now();
+
+    document.getElementById("estado").innerText = "ONLINE";
+    document.getElementById("estado").className = "estado online";
+
+    // 📈 tendencia
+    if(ultimaTemp !== null){
+      if(d.valor > ultimaTemp){
+        document.getElementById("tendencia").innerText = "↑ Subiendo";
+      } else if(d.valor < ultimaTemp){
+        document.getElementById("tendencia").innerText = "↓ Bajando";
+      } else {
+        document.getElementById("tendencia").innerText = "→ Estable";
+      }
+    }
+    ultimaTemp = d.valor;
+
+    // 🔴 alarma temperatura
+    if(d.valor < 35){
+      document.getElementById("alertaTemp").innerText = "⚠️ BAJA TEMPERATURA";
+    } else {
+      document.getElementById("alertaTemp").innerText = "";
+    }
+  }
+});
+
+// 🔥 CORTE ENERGÍA
+setInterval(()=>{
+  if(Date.now() - ultimoUpdate > 120000){
+    document.getElementById("estado").innerText = "OFFLINE";
+    document.getElementById("estado").className = "estado offline";
+    document.getElementById("alertaEnergia").innerText = "⚡ POSIBLE CORTE";
+  } else {
+    document.getElementById("alertaEnergia").innerText = "";
+  }
+},5000);
+
+// 🌤️ CLIMA SANTIAGO
+function cargarClima(){
+  fetch("https://api.open-meteo.com/v1/forecast?latitude=-33.45&longitude=-70.66&current_weather=true")
+  .then(r=>r.json())
+  .then(d=>{
+    document.getElementById("tempAmbiente").innerText =
+      "Ambiente: "+d.current_weather.temperature+" °C";
+  });
+}
+cargarClima();
+setInterval(cargarClima,600000);
+
+// 📊 GRAFICO
+function graficar(labels,data,titulo){
+
+  const ctx = document.getElementById("grafico");
+
+  if(grafico) grafico.destroy();
+
+  grafico = new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:labels,
+      datasets:[{
+        label:titulo,
+        data:data,
+        borderWidth:2,
+        tension:0.2,
+        pointRadius:2
+      }]
+    },
+    options:{animation:false}
+  });
+
+  ultimoDataset = labels.map((l,i)=>({x:l,y:data[i]}));
+}
+
+// 🔥 TIEMPO REAL (5s)
+function modoTiempoReal(){
+
+  clearInterval(realtimeInterval);
+
+  realtimeLabels=[];
+  realtimeData=[];
+
+  realtimeInterval=setInterval(()=>{
+
+    db.ref(basePath+"/actual").once("value", snap=>{
+
+      const d = snap.val();
+      if(!d) return;
+
+      const hora = new Date().toLocaleTimeString();
+
+      realtimeLabels.push(hora);
+      realtimeData.push(d.valor);
+
+      if(realtimeLabels.length > 60){
+        realtimeLabels.shift();
+        realtimeData.shift();
+      }
+
+      graficar(realtimeLabels,realtimeData,"Tiempo real");
+    });
+
+  },5000);
+}
+
+// 🔥 DIARIO
+function cargarDia(){
+  clearInterval(realtimeInterval);
+
+  const hoy = new Date().toISOString().slice(0,10);
+
+  db.ref(basePath+"/registros_minuto/"+hoy).once("value",snap=>{
+    const data = snap.val();
+    if(!data) return alert("Sin datos");
+
+    let labels=[], vals=[];
+    Object.keys(data).forEach(k=>{
+      labels.push(new Date(k*1000).toLocaleTimeString());
+      vals.push(data[k]);
+    });
+
+    graficar(labels,vals,"Hoy");
+  });
+}
+
+// 🔥 SEMANAL
+function cargarSemana(){
+  clearInterval(realtimeInterval);
+
+  db.ref(basePath+"/registros_minuto").once("value",snap=>{
+    const data = snap.val();
+    if(!data) return;
+
+    let dias = Object.keys(data).slice(-7);
+
+    let labels=[], vals=[];
+    dias.forEach(d=>{
+      let arr=Object.values(data[d]);
+      let prom=arr.reduce((a,b)=>a+b,0)/arr.length;
+      labels.push(d);
+      vals.push(prom);
+    });
+
+    graficar(labels,vals,"Semanal");
+  });
+}
+
+// 🔥 MENSUAL
+function cargarMes(){
+  clearInterval(realtimeInterval);
+
+  db.ref(basePath+"/registros_minuto").once("value",snap=>{
+    const data = snap.val();
+    if(!data) return;
+
+    let meses={};
+
+    Object.keys(data).forEach(d=>{
+      let m=d.slice(0,7);
+      if(!meses[m]) meses[m]=[];
+
+      Object.values(data[d]).forEach(v=>meses[m].push(v));
+    });
+
+    let labels=[], vals=[];
+    Object.keys(meses).forEach(m=>{
+      let arr=meses[m];
+      labels.push(m);
+      vals.push(arr.reduce((a,b)=>a+b,0)/arr.length);
+    });
+
+    graficar(labels,vals,"Mensual");
+  });
+}
+
+// 🔥 ANUAL
+function cargarAnio(){
+  clearInterval(realtimeInterval);
+
+  db.ref(basePath+"/registros_minuto").once("value",snap=>{
+    const data = snap.val();
+    if(!data) return;
+
+    let anios={};
+
+    Object.keys(data).forEach(d=>{
+      let a=d.slice(0,4);
+      if(!anios[a]) anios[a]=[];
+
+      Object.values(data[d]).forEach(v=>anios[a].push(v));
+    });
+
+    let labels=[], vals=[];
+    Object.keys(anios).forEach(a=>{
+      let arr=anios[a];
+      labels.push(a);
+      vals.push(arr.reduce((x,y)=>x+y,0)/arr.length);
+    });
+
+    graficar(labels,vals,"Anual");
+  });
+}
+
+// 📄 EXPORTAR CSV
+function exportarCSV(){
+  let csv="Tiempo,Temp\n";
+  ultimoDataset.forEach(p=>csv+=`${p.x},${p.y}\n`);
+
+  const blob=new Blob([csv]);
+  const url=URL.createObjectURL(blob);
+
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="datos.csv";
+  a.click();
+}
+
+</script>
+
+</body>
+</html>
