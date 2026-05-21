@@ -1,861 +1,336 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
-
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NUMEC Monitor</title>
 
-<title>NUMEC CONTROL CALDERA</title>
-
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-
-body{
-    font-family:Arial;
-    background:#111;
-    color:white;
-    margin:0;
-    padding:20px;
+body {
+  background:#0f172a;
+  color:white;
+  font-family:Arial;
+  text-align:center;
 }
 
-h1{
-    text-align:center;
-    color:#00d4ff;
+.card {
+  background:#1e293b;
+  padding:20px;
+  margin:15px auto;
+  border-radius:15px;
+  width:90%;
+  max-width:1000px;
 }
 
-.card{
-    background:#1e1e1e;
-    padding:15px;
-    border-radius:10px;
-    margin-bottom:15px;
+.temp {
+  font-size:60px;
+  color:#38bdf8;
 }
 
-.estado-on{
-    color:#00ff66;
-    font-weight:bold;
+.estado { font-weight:bold; }
+.online { color:#22c55e; }
+.offline { color:red; }
+
+.ambiente {
+  font-size:18px;
+  color:#facc15;
 }
 
-.estado-off{
-    color:#ff4444;
-    font-weight:bold;
+.alerta {
+  color:red;
+  font-weight:bold;
 }
 
-.online{
-    color:#00ff66;
-    font-weight:bold;
+button {
+  margin:5px;
+  padding:10px;
+  border:none;
+  border-radius:8px;
+  background:#38bdf8;
+  cursor:pointer;
 }
-
-.offline{
-    color:#ff4444;
-    font-weight:bold;
-}
-
-button{
-    padding:10px 15px;
-    border:none;
-    border-radius:8px;
-    margin:5px;
-    cursor:pointer;
-    font-size:16px;
-}
-
-.btn-on{
-    background:#00aa55;
-    color:white;
-}
-
-.btn-off{
-    background:#cc3333;
-    color:white;
-}
-
-.btn-graf{
-    background:#333;
-    color:white;
-}
-
-input{
-    padding:8px;
-    border-radius:6px;
-    border:none;
-    width:90px;
-}
-
-select{
-    padding:8px;
-    border-radius:6px;
-}
-
-canvas{
-    background:#fff;
-    border-radius:10px;
-}
-
 </style>
-
 </head>
 
 <body>
 
-<h1>🔥 NUMEC CONTROL CALDERA</h1>
-
-<!-- ================================================= -->
-<!-- TEMPERATURA -->
-<!-- ================================================= -->
-
 <div class="card">
+  <h1>NUMEC</h1>
+  <h2>Torre A - Estanque 1</h2>
 
-<h2>
-🌡 Temperatura Interior:
-<span id="temp">0</span> °C
-</h2>
+  <div class="temp" id="temp">-- °C</div>
+  <p id="hora">...</p>
 
-<h2>
-🌤 Santiago Centro:
-<span id="tempExterior">--</span> °C
-</h2>
+  <div id="estado" class="estado offline">OFFLINE</div>
+  <div id="tendencia"></div>
 
-<h3>
-Estado:
-<span id="estado" class="estado-off">
-OFF
-</span>
-</h3>
+  <div class="ambiente" id="tempAmbiente">Ambiente: -- °C</div>
 
-<p>
-Motivo:
-<span id="motivo">
----
-</span>
-</p>
-
+  <div id="alertaTemp" class="alerta"></div>
+  <div id="alertaEnergia" class="alerta"></div>
 </div>
 
-<!-- ================================================= -->
-<!-- RF -->
-<!-- ================================================= -->
-
 <div class="card">
+  <h3>Gráficos</h3>
 
-<h3>📡 Comunicación</h3>
+  <button onclick="modoTiempoReal()">Tiempo real</button>
+  <button onclick="cargarDia()">Diario</button>
+  <button onclick="cargarSemana()">Semanal</button>
+  <button onclick="cargarMes()">Mensual</button>
+  <button onclick="cargarAnio()">Anual</button>
+  <button onclick="exportarCSV()">Exportar CSV</button>
 
-<p>
-RF:
-<span id="rf_estado">
----
-</span>
-</p>
-
+  <canvas id="grafico"></canvas>
 </div>
 
-<!-- ================================================= -->
-<!-- COUNTDOWN -->
-<!-- ================================================= -->
+<script>
 
-<div class="card">
-
-<h3>⏳ Countdown</h3>
-
-<p>
-Encendido:
-<span id="countdown_on">0</span>
-</p>
-
-<p>
-Apagado:
-<span id="countdown_off">0</span>
-</p>
-
-</div>
-
-<!-- ================================================= -->
-<!-- MODO -->
-<!-- ================================================= -->
-
-<div class="card">
-
-<h3>Modo funcionamiento</h3>
-
-<select id="modo">
-
-<option value="AUTO">
-AUTO
-</option>
-
-<option value="MANUAL">
-MANUAL
-</option>
-
-</select>
-
-<br><br>
-
-<button
-class="btn-on"
-onclick="manualOn()">
-
-Manual ON
-
-</button>
-
-<button
-class="btn-off"
-onclick="manualOff()">
-
-Manual OFF
-
-</button>
-
-</div>
-
-<!-- ================================================= -->
-<!-- SETPOINT -->
-<!-- ================================================= -->
-
-<div class="card">
-
-<h3>🌡 Setpoints</h3>
-
-<label>
-Encender bajo
-</label>
-
-<input type="number" id="set_on">
-
-<label>
-Apagar sobre
-</label>
-
-<input type="number" id="set_off">
-
-<br><br>
-
-<button onclick="guardarSetpoints()">
-
-Guardar Setpoints
-
-</button>
-
-</div>
-
-<!-- ================================================= -->
-<!-- HORARIO -->
-<!-- ================================================= -->
-
-<div class="card">
-
-<h3>🕒 Horario</h3>
-
-<label>
-Hora inicio
-</label>
-
-<input type="time" id="hora_inicio">
-
-<label>
-Hora fin
-</label>
-
-<input type="time" id="hora_fin">
-
-<br><br>
-
-<label>
-
-<input type="checkbox" id="modo24">
-
-Modo 24/7
-
-</label>
-
-<br><br>
-
-<button onclick="guardarHorario()">
-
-Guardar Horario
-
-</button>
-
-</div>
-
-<!-- ================================================= -->
-<!-- HISTÉRESIS -->
-<!-- ================================================= -->
-
-<div class="card">
-
-<h3>⏱ Histéresis</h3>
-
-<label>
-Min ON
-</label>
-
-<input type="number" id="min_on">
-
-<label>
-Min OFF
-</label>
-
-<input type="number" id="min_off">
-
-<br><br>
-
-<button onclick="guardarHisterisis()">
-
-Guardar Histéresis
-
-</button>
-
-</div>
-
-<!-- ================================================= -->
-<!-- GRAFICO -->
-<!-- ================================================= -->
-
-<div class="card">
-
-<h2>📈 Historial Temperatura</h2>
-
-<button class="btn-graf" onclick="cargarGrafico(3)">
-3 Horas
-</button>
-
-<button class="btn-graf" onclick="cargarGrafico(6)">
-6 Horas
-</button>
-
-<button class="btn-graf" onclick="cargarGrafico(12)">
-12 Horas
-</button>
-
-<button class="btn-graf" onclick="cargarGrafico(24)">
-24 Horas
-</button>
-
-<button class="btn-graf" onclick="cargarGrafico(168)">
-Semanal
-</button>
-
-<button class="btn-graf" onclick="cargarGrafico(720)">
-Mensual
-</button>
-
-<br><br>
-
-<canvas id="graficoTemp"></canvas>
-
-</div>
-
-<script type="module">
-
-// =====================================================
-// FIREBASE
-// =====================================================
-
-import { initializeApp }
-
-from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-
-import {
-
-getDatabase,
-ref,
-set,
-onValue,
-get
-
-}
-
-from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-
-// =====================================================
-// CONFIG
-// =====================================================
-
+// 🔥 CONFIG
 const firebaseConfig = {
-
-apiKey:
-"AIzaSyC2Le7c9aShxgX62qLPIXG65yOys7gvuq4",
-
-authDomain:
-"mantenimiento-numec.firebaseapp.com",
-
-databaseURL:
-"https://mantenimiento-numec-default-rtdb.firebaseio.com",
-
-projectId:
-"mantenimiento-numec"
-
+  apiKey: "AIzaSyAcHuJpGOra7VEiwhRCEg7Ka8ECiIb0Tg8",
+  databaseURL: "https://mantenimiento-numec-default-rtdb.firebaseio.com"
 };
 
-// =====================================================
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
-const app =
-initializeApp(firebaseConfig);
+const basePath = "numec/santa_maria/temperatura";
 
-const db =
-getDatabase(app);
+let grafico;
+let realtimeInterval;
+let realtimeLabels = [];
+let realtimeData = [];
+let ultimoDataset = [];
 
-// =====================================================
-// WATCHDOG
-// =====================================================
+let ultimoUpdate = Date.now();
+let ultimaTemp = null;
 
-let ultimoHeartbeat = Date.now();
+// 🔥 DATOS EN VIVO
+db.ref(basePath + "/actual").on("value", snap => {
+  const d = snap.val();
+  if(d){
 
-// =====================================================
-// GRAFICO
-// =====================================================
+    document.getElementById("temp").innerText = d.valor.toFixed(1)+" °C";
+    document.getElementById("hora").innerText = new Date().toLocaleString();
 
-let chart;
+    ultimoUpdate = Date.now();
 
-// =====================================================
-// TEMPERATURA EXTERIOR
-// =====================================================
+    document.getElementById("estado").innerText = "ONLINE";
+    document.getElementById("estado").className = "estado online";
 
-async function actualizarTemperaturaExterior(){
+    // 📈 tendencia
+    if(ultimaTemp !== null){
+      if(d.valor > ultimaTemp){
+        document.getElementById("tendencia").innerText = "↑ Subiendo";
+      } else if(d.valor < ultimaTemp){
+        document.getElementById("tendencia").innerText = "↓ Bajando";
+      } else {
+        document.getElementById("tendencia").innerText = "→ Estable";
+      }
+    }
+    ultimaTemp = d.valor;
 
-try{
-
-const response = await fetch(
-'https://api.open-meteo.com/v1/forecast?latitude=-33.45&longitude=-70.66&current=temperature_2m'
-);
-
-const data = await response.json();
-
-document.getElementById("tempExterior")
-.innerText =
-data.current.temperature_2m;
-
-}
-
-catch(error){
-
-document.getElementById("tempExterior")
-.innerText = "--";
-
-}
-
-}
-
-// =====================================================
-// ACTUALIZAR CADA 10 MIN
-// =====================================================
-
-actualizarTemperaturaExterior();
-
-setInterval(
-actualizarTemperaturaExterior,
-600000
-);
-
-// =====================================================
-// CALDERA
-// =====================================================
-
-onValue(
-ref(db, "/caldera"),
-(snapshot)=>{
-
-const data = snapshot.val();
-
-if(!data) return;
-
-// TEMP
-
-document.getElementById("temp").innerText =
-data.temp ?? 0;
-
-// ESTADO
-
-document.getElementById("estado").innerText =
-data.estado ?? "OFF";
-
-if(data.estado=="ON"){
-
-document.getElementById("estado")
-.className="estado-on";
-}
-
-else{
-
-document.getElementById("estado")
-.className="estado-off";
-}
-
-// MOTIVO
-
-document.getElementById("motivo").innerText =
-data.motivo ?? "---";
-
-// RF
-
-if(data.rf_online){
-
-document.getElementById("rf_estado")
-.innerHTML =
-'<span class="online">🟢 ONLINE</span>';
-}
-
-else{
-
-document.getElementById("rf_estado")
-.innerHTML =
-'<span class="offline">🔴 EMISOR OFFLINE</span>';
-}
-
-// COUNTDOWN
-
-document.getElementById("countdown_on").innerText =
-data.countdown_on ?? 0;
-
-document.getElementById("countdown_off").innerText =
-data.countdown_off ?? 0;
-
-// MODO
-
-document.getElementById("modo").value =
-data.modo ?? "AUTO";
-
-// SETPOINTS
-
-document.getElementById("set_on").value =
-data.set_on ?? 20;
-
-document.getElementById("set_off").value =
-data.set_off ?? 26;
-
+    // 🔴 alarma temperatura
+    if(d.valor < 35){
+      document.getElementById("alertaTemp").innerText = "⚠️ BAJA TEMPERATURA";
+    } else {
+      document.getElementById("alertaTemp").innerText = "";
+    }
+  }
 });
 
-// =====================================================
-// HEARTBEAT RECEPTOR
-// =====================================================
-
-onValue(
-ref(db, "/caldera/receptor_heartbeat"),
-(snapshot)=>{
-
-if(snapshot.exists()){
-
-ultimoHeartbeat = Date.now();
-
-}
-
-});
-
-// =====================================================
-// WATCHDOG RECEPTOR
-// =====================================================
-
+// 🔥 CORTE ENERGÍA
 setInterval(()=>{
+  if(Date.now() - ultimoUpdate > 120000){
+    document.getElementById("estado").innerText = "OFFLINE";
+    document.getElementById("estado").className = "estado offline";
+    document.getElementById("alertaEnergia").innerText = "⚡ POSIBLE CORTE";
+  } else {
+    document.getElementById("alertaEnergia").innerText = "";
+  }
+},5000);
 
-let diff =
-Date.now() - ultimoHeartbeat;
+// 🌤️ CLIMA SANTIAGO
+function cargarClima(){
+  fetch("https://api.open-meteo.com/v1/forecast?latitude=-33.45&longitude=-70.66&current_weather=true")
+  .then(r=>r.json())
+  .then(d=>{
+    document.getElementById("tempAmbiente").innerText =
+      "Ambiente: "+d.current_weather.temperature+" °C";
+  });
+}
+cargarClima();
+setInterval(cargarClima,600000);
 
-if(diff > 15000){
+// 📊 GRAFICO
+function graficar(labels,data,titulo){
 
-document.getElementById("rf_estado")
-.innerHTML =
-'<span class="offline">🔴 RECEPTOR OFFLINE</span>';
+  const ctx = document.getElementById("grafico");
 
-document.getElementById("temp")
-.innerText = -127;
+  if(grafico) grafico.destroy();
 
-document.getElementById("estado")
-.innerText = "OFF";
+  grafico = new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:labels,
+      datasets:[{
+        label:titulo,
+        data:data,
+        borderWidth:2,
+        tension:0.2,
+        pointRadius:2
+      }]
+    },
+    options:{animation:false}
+  });
 
-document.getElementById("estado")
-.className = "estado-off";
-
-document.getElementById("motivo")
-.innerText = "RECEPTOR OFFLINE";
-
+  ultimoDataset = labels.map((l,i)=>({x:l,y:data[i]}));
 }
 
-},1000);
+// 🔥 TIEMPO REAL (5s)
+function modoTiempoReal(){
 
-// =====================================================
-// HORARIO
-// =====================================================
+  clearInterval(realtimeInterval);
 
-onValue(
-ref(db, "/caldera/horario"),
-(snapshot)=>{
+  realtimeLabels=[];
+  realtimeData=[];
 
-const data = snapshot.val();
+  realtimeInterval=setInterval(()=>{
 
-if(!data) return;
+    db.ref(basePath+"/actual").once("value", snap=>{
 
-document.getElementById("hora_inicio").value =
-data.inicio ?? "06:00";
+      const d = snap.val();
+      if(!d) return;
 
-document.getElementById("hora_fin").value =
-data.fin ?? "23:00";
+      const hora = new Date().toLocaleTimeString();
 
-document.getElementById("modo24").checked =
-data.modo24 ?? true;
+      realtimeLabels.push(hora);
+      realtimeData.push(d.valor);
 
-});
+      if(realtimeLabels.length > 60){
+        realtimeLabels.shift();
+        realtimeData.shift();
+      }
 
-// =====================================================
-// HISTÉRESIS
-// =====================================================
+      graficar(realtimeLabels,realtimeData,"Tiempo real");
+    });
 
-onValue(
-ref(db, "/caldera/tiempos"),
-(snapshot)=>{
-
-const data = snapshot.val();
-
-if(!data) return;
-
-document.getElementById("min_on").value =
-data.min_on ?? 1;
-
-document.getElementById("min_off").value =
-data.min_off ?? 1;
-
-});
-
-// =====================================================
-// GRAFICO
-// =====================================================
-
-window.cargarGrafico = async function(horas){
-
-const snapshot = await get(
-ref(db, "/historial/temp")
-);
-
-if(!snapshot.exists()) return;
-
-const datos = snapshot.val();
-
-let labels = [];
-let temperaturas = [];
-
-const ahora = new Date();
-
-Object.entries(datos).forEach(([fecha, valor])=>{
-
-let year = fecha.substring(0,4);
-let month = fecha.substring(4,6);
-let day = fecha.substring(6,8);
-
-let hour = fecha.substring(9,11);
-let minute = fecha.substring(11,13);
-let second = fecha.substring(13,15);
-
-let fechaObj =
-new Date(
-`${year}-${month}-${day}T${hour}:${minute}:${second}`
-);
-
-let diffHoras =
-(ahora - fechaObj) / 3600000;
-
-if(diffHoras <= horas){
-
-labels.push(
-`${day}/${month} ${hour}:${minute}`
-);
-
-temperaturas.push(valor);
-
+  },5000);
 }
 
-});
+// 🔥 DIARIO
+function cargarDia(){
+  clearInterval(realtimeInterval);
 
-const ctx =
-document.getElementById("graficoTemp");
+  const hoy = new Date().toISOString().slice(0,10);
 
-if(chart){
+  db.ref(basePath+"/registros_minuto/"+hoy).once("value",snap=>{
+    const data = snap.val();
+    if(!data) return alert("Sin datos");
 
-chart.destroy();
+    let labels=[], vals=[];
+    Object.keys(data).forEach(k=>{
+      labels.push(new Date(k*1000).toLocaleTimeString());
+      vals.push(data[k]);
+    });
 
+    graficar(labels,vals,"Hoy");
+  });
 }
 
-chart = new Chart(ctx, {
+// 🔥 SEMANAL
+function cargarSemana(){
+  clearInterval(realtimeInterval);
 
-type:'line',
+  db.ref(basePath+"/registros_minuto").once("value",snap=>{
+    const data = snap.val();
+    if(!data) return;
 
-data:{
+    let dias = Object.keys(data).slice(-7);
 
-labels:labels,
+    let labels=[], vals=[];
+    dias.forEach(d=>{
+      let arr=Object.values(data[d]);
+      let prom=arr.reduce((a,b)=>a+b,0)/arr.length;
+      labels.push(d);
+      vals.push(prom);
+    });
 
-datasets:[{
-
-label:'Temperatura °C',
-
-data:temperaturas,
-
-borderWidth:2,
-
-tension:0.2
-
-}]
-
-},
-
-options:{
-
-responsive:true,
-
-plugins:{
-
-legend:{
-display:true
+    graficar(labels,vals,"Semanal");
+  });
 }
 
-},
+// 🔥 MENSUAL
+function cargarMes(){
+  clearInterval(realtimeInterval);
 
-scales:{
+  db.ref(basePath+"/registros_minuto").once("value",snap=>{
+    const data = snap.val();
+    if(!data) return;
 
-y:{
+    let meses={};
 
-beginAtZero:true,
+    Object.keys(data).forEach(d=>{
+      let m=d.slice(0,7);
+      if(!meses[m]) meses[m]=[];
 
-min:0,
+      Object.values(data[d]).forEach(v=>meses[m].push(v));
+    });
 
-title:{
-display:true,
-text:'Temperatura °C'
+    let labels=[], vals=[];
+    Object.keys(meses).forEach(m=>{
+      let arr=meses[m];
+      labels.push(m);
+      vals.push(arr.reduce((a,b)=>a+b,0)/arr.length);
+    });
+
+    graficar(labels,vals,"Mensual");
+  });
 }
 
-},
+// 🔥 ANUAL
+function cargarAnio(){
+  clearInterval(realtimeInterval);
 
-x:{
+  db.ref(basePath+"/registros_minuto").once("value",snap=>{
+    const data = snap.val();
+    if(!data) return;
 
-title:{
-display:true,
-text:'Tiempo'
+    let anios={};
+
+    Object.keys(data).forEach(d=>{
+      let a=d.slice(0,4);
+      if(!anios[a]) anios[a]=[];
+
+      Object.values(data[d]).forEach(v=>anios[a].push(v));
+    });
+
+    let labels=[], vals=[];
+    Object.keys(anios).forEach(a=>{
+      let arr=anios[a];
+      labels.push(a);
+      vals.push(arr.reduce((x,y)=>x+y,0)/arr.length);
+    });
+
+    graficar(labels,vals,"Anual");
+  });
 }
 
-}
+// 📄 EXPORTAR CSV
+function exportarCSV(){
+  let csv="Tiempo,Temp\n";
+  ultimoDataset.forEach(p=>csv+=`${p.x},${p.y}\n`);
 
-}
+  const blob=new Blob([csv]);
+  const url=URL.createObjectURL(blob);
 
-}
-
-});
-
-}
-
-// =====================================================
-// GRAFICO INICIAL
-// =====================================================
-
-cargarGrafico(3);
-
-// =====================================================
-// CAMBIO MODO
-// =====================================================
-
-document
-.getElementById("modo")
-.addEventListener("change",(e)=>{
-
-set(
-ref(db,"/caldera/modo"),
-e.target.value
-);
-
-});
-
-// =====================================================
-// MANUAL
-// =====================================================
-
-window.manualOn = function(){
-
-set(
-ref(db,"/caldera/manual_relay"),
-true
-);
-
-}
-
-window.manualOff = function(){
-
-set(
-ref(db,"/caldera/manual_relay"),
-false
-);
-
-}
-
-// =====================================================
-// SETPOINTS
-// =====================================================
-
-window.guardarSetpoints = function(){
-
-set(
-ref(db,"/caldera/set_on"),
-Number(
-document.getElementById("set_on").value
-)
-);
-
-set(
-ref(db,"/caldera/set_off"),
-Number(
-document.getElementById("set_off").value
-)
-);
-
-alert("Setpoints guardados");
-
-}
-
-// =====================================================
-// HORARIO
-// =====================================================
-
-window.guardarHorario = function(){
-
-set(
-ref(db,"/caldera/horario/inicio"),
-document.getElementById("hora_inicio").value
-);
-
-set(
-ref(db,"/caldera/horario/fin"),
-document.getElementById("hora_fin").value
-);
-
-set(
-ref(db,"/caldera/horario/modo24"),
-document.getElementById("modo24").checked
-);
-
-alert("Horario guardado");
-
-}
-
-// =====================================================
-// HISTÉRESIS
-// =====================================================
-
-window.guardarHisterisis = function(){
-
-set(
-ref(db,"/caldera/tiempos/min_on"),
-Number(
-document.getElementById("min_on").value
-)
-);
-
-set(
-ref(db,"/caldera/tiempos/min_off"),
-Number(
-document.getElementById("min_off").value
-)
-);
-
-alert("Histéresis guardada");
-
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="datos.csv";
+  a.click();
 }
 
 </script>
